@@ -1,37 +1,36 @@
-# ============================================================
-# Experimental parameters used in the EQLG study
-# ============================================================
+# Experimental parameters used in the EQLG revision
 
-# EQLG settings
+reproducibility:
+  random_seed: 42
+
 eqlg:
   default_radius: 3
 
-# Truncation radii considered in the sensitivity analysis
-radius_sensitivity:
-  radius_values:
-    - 1
-    - 2
-    - 3
-    - 4
-
-# SIR spreading model
 sir:
   recovery_probability: 1.0
-
-  beta_multipliers:
-    - 0.8
-    - 0.9
-    - 1.0
-    - 1.1
-    - 1.2
-
+  beta_multipliers: [0.8, 0.9, 1.0, 1.1, 1.2]
   simulations_per_source: 1000
 
-# Evaluation settings
 evaluation:
   top_fraction: 0.20
+  metrics: [kendall, jaccard, monotonicity]
 
-  metrics:
-    - kendall
-    - jaccard
-    - monotonicity
+section_4_4_1_radius_sensitivity:
+  radius_values: [1, 2, 3, 4]
+
+section_4_4_2_runtime:
+  radius_values: [1, 2, 3, 4]
+  repeats: 3
+  warmup_runs: 1
+  coverage_sample_size: null  # null means all source nodes
+
+section_4_4_3_scalability:
+  graph_model: barabasi_albert
+  node_counts: [1000, 5000, 10000, 20000, 50000]
+  attachment_parameter: 3
+  radius: 3
+  repeats: 3
+  warmup_runs: 1
+  coverage_sample_size: 1000
+  memory_unit: MiB
+

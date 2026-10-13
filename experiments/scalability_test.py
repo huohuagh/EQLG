@@ -1,281 +1,259 @@
-"""
-Scalability evaluation utilities for EQLG.
+"""Section 4.4.3: EQLG scalability and peak traced memory.
 
-This module evaluates how the computational cost of EQLG
-changes with network size.
-
-The analysis records:
-
-1. number of nodes;
-2. number of edges;
-3. network density;
-4. average degree;
-5. wall-clock execution time;
-6. Python-level peak traced memory.
-
-Dataset construction and graph-sampling strategies are
-intentionally left to the user.
+Synthetic Barabasi-Albert networks are generated before measurement.  The
+timed/traced region contains only ``eqlg_centrality`` and its returned scores;
+network generation and coverage estimation are excluded.
 """
 
+from __future__ import annotations
+
+import argparse
+import csv
+import gc
+import json
+import math
+import random
 import statistics
+import sys
 import time
 import tracemalloc
+from pathlib import Path
+from typing import Any, Iterable, Mapping
+
+import networkx as nx
+
+REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
+if str(REPOSITORY_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPOSITORY_ROOT))
 
 from src.eqlg import eqlg_centrality
 
 
-def graph_statistics(G):
-    """
-    Compute basic structural statistics of a network.
+NETWORK_SIZES = (1_000, 5_000, 10_000, 20_000, 50_000)
+ATTACHMENT_PARAMETER = 3
+RADIUS = 3
+REPEATS = 3
+WARMUP_RUNS = 1
+SEED = 42
+COVERAGE_SAMPLE_SIZE = 1_000
 
-    Parameters
-    ----------
-    G : networkx.Graph
-        Input network.
 
-    Returns
-    -------
-    dict
-        Basic network statistics.
-    """
-    n = G.number_of_nodes()
-    m = G.number_of_edges()
-
-    if n == 0:
-        average_degree = 0.0
-        density = 0.0
-
+def estimate_coverage(
+    G: nx.Graph,
+    *,
+    radius: int,
+    sample_size: int,
+    seed: int,
+) -> dict[str, float | int]:
+    nodes = list(G.nodes())
+    if sample_size <= 0 or sample_size >= len(nodes):
+        sources = nodes
     else:
-        average_degree = (
-            2.0 * m / n
-        )
-
-        if n > 1:
-            density = (
-                2.0 * m
-                / (n * (n - 1))
-            )
-        else:
-            density = 0.0
-
+        sources = random.Random(seed).sample(nodes, sample_size)
+    counts = [
+        len(nx.single_source_shortest_path_length(G, source, cutoff=radius)) - 1
+        for source in sources
+    ]
+    mean_nodes = statistics.mean(counts) if counts else 0.0
     return {
-        "nodes": n,
-        "edges": m,
-        "average_degree": average_degree,
-        "density": density,
+        "coverage_sample_size": len(sources),
+        "mean_nodes_within_radius": mean_nodes,
+        "mean_coverage_fraction": mean_nodes / max(1, G.number_of_nodes() - 1),
     }
 
 
 def measure_eqlg_scalability(
-    G,
-    radius=3,
-    repeats=1
-):
-    """
-    Measure the runtime and peak traced memory of EQLG
-    on a single network.
-
-    Parameters
-    ----------
-    G : networkx.Graph
-        Static, undirected, and unweighted network.
-
-    radius : int, default=3
-        Truncation radius used by EQLG.
-
-    repeats : int, default=1
-        Number of independent measurements.
-
-    Returns
-    -------
-    dict
-        Network statistics, runtime statistics, and
-        peak traced memory usage.
-    """
-    if radius < 1:
+    G: nx.Graph,
+    *,
+    radius: int = RADIUS,
+    repeats: int = REPEATS,
+    warmup_runs: int = WARMUP_RUNS,
+) -> dict[str, Any]:
+    """Measure mean runtime and peak Python-traced memory for one graph."""
+    if radius < 1 or repeats < 1 or warmup_runs < 0:
         raise ValueError(
-            "radius must be at least 1."
+            "radius/repeats must be >= 1 and warmup_runs must be >= 0."
         )
 
-    if repeats < 1:
-        raise ValueError(
-            "repeats must be at least 1."
-        )
+    for _ in range(warmup_runs):
+        eqlg_centrality(G, radius=radius)
 
-    structure = graph_statistics(G)
-
-    elapsed_times = []
-    peak_memory_values = []
-
+    elapsed: list[float] = []
+    peak_mib: list[float] = []
     for _ in range(repeats):
-
-        # Start Python memory tracing.
+        gc.collect()
         tracemalloc.start()
-
         start = time.perf_counter()
-
-        eqlg_centrality(
-            G,
-            radius=radius
-        )
-
-        end = time.perf_counter()
-
-        _, peak_memory = (
-            tracemalloc.get_traced_memory()
-        )
-
+        scores = eqlg_centrality(G, radius=radius)
+        elapsed.append(time.perf_counter() - start)
+        _, peak_bytes = tracemalloc.get_traced_memory()
         tracemalloc.stop()
-
-        elapsed_times.append(
-            end - start
-        )
-
-        # Convert bytes to MiB.
-        peak_memory_values.append(
-            peak_memory
-            / (1024 ** 2)
-        )
-
-    mean_runtime = statistics.mean(
-        elapsed_times
-    )
-
-    mean_peak_memory = statistics.mean(
-        peak_memory_values
-    )
-
-    if repeats > 1:
-
-        runtime_std = statistics.stdev(
-            elapsed_times
-        )
-
-        memory_std = statistics.stdev(
-            peak_memory_values
-        )
-
-    else:
-
-        runtime_std = 0.0
-        memory_std = 0.0
+        peak_mib.append(peak_bytes / (1024.0**2))
+        del scores
 
     return {
-        "network": structure,
-        "radius": radius,
-        "runtime": {
-            "times_seconds": elapsed_times,
-            "mean_seconds": mean_runtime,
-            "std_seconds": runtime_std,
-        },
-        "memory": {
-            "peak_values_mib": peak_memory_values,
-            "mean_peak_mib": mean_peak_memory,
-            "std_peak_mib": memory_std,
-        },
+        "runtime_values_seconds": elapsed,
+        "mean_runtime_seconds": statistics.mean(elapsed),
+        "runtime_std_seconds": statistics.stdev(elapsed) if repeats > 1 else 0.0,
+        "peak_memory_values_mib": peak_mib,
+        "mean_peak_memory_mib": statistics.mean(peak_mib),
+        "peak_memory_std_mib": statistics.stdev(peak_mib) if repeats > 1 else 0.0,
     }
 
 
-def scalability_analysis(
-    graphs,
-    radius=3,
-    repeats=1
-):
-    """
-    Evaluate EQLG scalability over a sequence of networks.
+def scaling_exponent(rows: Iterable[Mapping[str, Any]], field: str) -> float:
+    """Return the OLS slope of log(field) against log(number of nodes)."""
+    points = [(float(row["nodes"]), float(row[field])) for row in rows]
+    if len(points) < 2 or any(x <= 0 or y <= 0 for x, y in points):
+        raise ValueError("At least two positive observations are required.")
+    log_x = [math.log(x) for x, _ in points]
+    log_y = [math.log(y) for _, y in points]
+    mean_x = statistics.mean(log_x)
+    mean_y = statistics.mean(log_y)
+    denominator = sum((value - mean_x) ** 2 for value in log_x)
+    return sum(
+        (x_value - mean_x) * (y_value - mean_y)
+        for x_value, y_value in zip(log_x, log_y)
+    ) / denominator
 
-    Parameters
-    ----------
-    graphs : dict
-        Mapping from a network label to a graph.
 
-        Example structure:
-
-        {
-            "network_1": G1,
-            "network_2": G2,
-            "network_3": G3,
-        }
-
-        The networks may be real-world networks,
-        synthetic networks, or sampled networks of
-        increasing size.
-
-    radius : int, default=3
-        Truncation radius used by EQLG.
-
-    repeats : int, default=1
-        Number of repeated measurements for each network.
-
-    Returns
-    -------
-    dict
-        Scalability measurements for all supplied networks.
-    """
-    if not graphs:
-        raise ValueError(
-            "graphs must not be empty."
+def run_ba_scalability(
+    *,
+    sizes: Iterable[int] = NETWORK_SIZES,
+    attachment_parameter: int = ATTACHMENT_PARAMETER,
+    radius: int = RADIUS,
+    repeats: int = REPEATS,
+    warmup_runs: int = WARMUP_RUNS,
+    seed: int = SEED,
+    coverage_sample_size: int = COVERAGE_SAMPLE_SIZE,
+) -> tuple[list[dict[str, Any]], dict[str, float]]:
+    """Run the controlled Barabasi-Albert scaling series."""
+    rows: list[dict[str, Any]] = []
+    for index, n in enumerate(sizes):
+        if n <= attachment_parameter:
+            raise ValueError("Every network size must exceed the BA parameter m.")
+        graph_seed = seed + index
+        G = nx.barabasi_albert_graph(n, attachment_parameter, seed=graph_seed)
+        measurement = measure_eqlg_scalability(
+            G,
+            radius=radius,
+            repeats=repeats,
+            warmup_runs=warmup_runs,
         )
-
-    results = {}
-
-    for network_name, G in graphs.items():
-
-        results[network_name] = (
-            measure_eqlg_scalability(
-                G=G,
-                radius=radius,
-                repeats=repeats
-            )
+        coverage = estimate_coverage(
+            G,
+            radius=radius,
+            sample_size=coverage_sample_size,
+            seed=graph_seed,
         )
-
-    return results
-
-
-def summarize_scalability(results):
-    """
-    Convert scalability results into a compact summary.
-
-    Parameters
-    ----------
-    results : dict
-        Output returned by scalability_analysis().
-
-    Returns
-    -------
-    list
-        One summary record for each network.
-    """
-    summary = []
-
-    for network_name, values in results.items():
-
-        network = values["network"]
-        runtime = values["runtime"]
-        memory = values["memory"]
-
-        summary.append(
+        rows.append(
             {
-                "network": network_name,
-                "nodes": network["nodes"],
-                "edges": network["edges"],
-                "average_degree": (
-                    network["average_degree"]
-                ),
-                "density": network["density"],
-                "mean_runtime_seconds": (
-                    runtime["mean_seconds"]
-                ),
-                "runtime_std_seconds": (
-                    runtime["std_seconds"]
-                ),
-                "mean_peak_memory_mib": (
-                    memory["mean_peak_mib"]
-                ),
-                "memory_std_mib": (
-                    memory["std_peak_mib"]
-                ),
+                "nodes": G.number_of_nodes(),
+                "edges": G.number_of_edges(),
+                "ba_m": attachment_parameter,
+                "radius": radius,
+                "graph_seed": graph_seed,
+                "repeats": repeats,
+                "warmup_runs": warmup_runs,
+                **coverage,
+                "mean_runtime_seconds": measurement["mean_runtime_seconds"],
+                "runtime_std_seconds": measurement["runtime_std_seconds"],
+                "mean_peak_memory_mib": measurement["mean_peak_memory_mib"],
+                "peak_memory_std_mib": measurement["peak_memory_std_mib"],
             }
         )
+        print(
+            f"N={n:,}: {measurement['mean_runtime_seconds']:.3f} s, "
+            f"{measurement['mean_peak_memory_mib']:.3f} MiB"
+        )
 
-    return summary
+    fit = {
+        "runtime_scaling_exponent": scaling_exponent(
+            rows, "mean_runtime_seconds"
+        ),
+        "memory_scaling_exponent": scaling_exponent(
+            rows, "mean_peak_memory_mib"
+        ),
+    }
+    return rows, fit
+
+
+def write_outputs(
+    rows: list[Mapping[str, Any]],
+    fit: Mapping[str, float],
+    csv_path: Path,
+    fit_path: Path,
+) -> None:
+    csv_path.parent.mkdir(parents=True, exist_ok=True)
+    fit_path.parent.mkdir(parents=True, exist_ok=True)
+    with csv_path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=list(rows[0].keys()))
+        writer.writeheader()
+        writer.writerows(rows)
+    with fit_path.open("w", encoding="utf-8") as handle:
+        json.dump(fit, handle, indent=2)
+        handle.write("\n")
+
+
+def plot_scalability(rows: list[Mapping[str, Any]], output_path: Path) -> None:
+    """Create the log-log runtime/memory figure used by the section."""
+    import matplotlib.pyplot as plt
+
+    nodes = [int(row["nodes"]) for row in rows]
+    runtime = [float(row["mean_runtime_seconds"]) for row in rows]
+    memory = [float(row["mean_peak_memory_mib"]) for row in rows]
+    figure, axes = plt.subplots(1, 2, figsize=(8.0, 3.2))
+    axes[0].loglog(nodes, runtime, marker="o")
+    axes[0].set(xlabel="Nodes", ylabel="Runtime (s)", title="Runtime scaling")
+    axes[1].loglog(nodes, memory, marker="o", color="#C44E52")
+    axes[1].set(xlabel="Nodes", ylabel="Peak traced memory (MiB)", title="Memory scaling")
+    for axis in axes:
+        axis.grid(True, which="both", linestyle=":", linewidth=0.6)
+    figure.tight_layout()
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    figure.savefig(output_path, dpi=300, bbox_inches="tight")
+    plt.close(figure)
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--sizes", type=int, nargs="+", default=list(NETWORK_SIZES))
+    parser.add_argument("--attachment-parameter", type=int, default=ATTACHMENT_PARAMETER)
+    parser.add_argument("--radius", type=int, default=RADIUS)
+    parser.add_argument("--repeats", type=int, default=REPEATS)
+    parser.add_argument("--warmup-runs", type=int, default=WARMUP_RUNS)
+    parser.add_argument("--seed", type=int, default=SEED)
+    parser.add_argument("--coverage-sample-size", type=int, default=COVERAGE_SAMPLE_SIZE)
+    parser.add_argument(
+        "--output", type=Path, default=Path("results/scalability.csv")
+    )
+    parser.add_argument(
+        "--fit-output", type=Path, default=Path("results/scalability_fit.json")
+    )
+    parser.add_argument(
+        "--plot-output", type=Path, default=Path("results/scalability.png")
+    )
+    parser.add_argument("--no-plot", action="store_true")
+    return parser.parse_args()
+
+
+def main() -> None:
+    args = parse_args()
+    rows, fit = run_ba_scalability(
+        sizes=args.sizes,
+        attachment_parameter=args.attachment_parameter,
+        radius=args.radius,
+        repeats=args.repeats,
+        warmup_runs=args.warmup_runs,
+        seed=args.seed,
+        coverage_sample_size=args.coverage_sample_size,
+    )
+    write_outputs(rows, fit, args.output, args.fit_output)
+    if not args.no_plot:
+        plot_scalability(rows, args.plot_output)
+    print(json.dumps(fit, indent=2))
+
+
+if __name__ == "__main__":
+    main()
+

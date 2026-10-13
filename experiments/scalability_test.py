@@ -46,17 +46,8 @@ def warm_up_eqlg(
     seed: int = BASE_SEED,
 ) -> None:
     """Run one small untimed EQLG call before the scaling series."""
-    G = nx.barabasi_albert_graph(
-        n=n,
-        m=m,
-        seed=seed,
-    )
-
-    eqlg_centrality(
-        G,
-        radius=radius,
-    )
-
+    G = nx.barabasi_albert_graph(n=n, m=m, seed=seed)
+    eqlg_centrality(G, radius=radius)
     del G
     gc.collect()
 
@@ -74,9 +65,7 @@ def estimate_rhop_coverage(
         return 0.0
 
     nodes = list(G.nodes())
-
     rng = np.random.default_rng(seed)
-
     actual_sample_size = min(sample_size, n)
 
     sampled_nodes = rng.choice(
@@ -94,15 +83,10 @@ def estimate_rhop_coverage(
             cutoff=radius,
         )
 
-        reached = len(distances) - 1
+        reachable = len(distances) - 1
+        coverage_values.append(reachable / (n - 1))
 
-        coverage_values.append(
-            reached / (n - 1)
-        )
-
-    return float(
-        np.mean(coverage_values)
-    )
+    return float(np.mean(coverage_values))
 
 
 def measure_one_network(
@@ -113,14 +97,18 @@ def measure_one_network(
     base_seed: int = BASE_SEED,
     coverage_sample_size: int = COVERAGE_SAMPLE_SIZE,
 ) -> Dict[str, Any]:
-    """Generate one BA network and measure EQLG runtime and traced memory.
+    """Generate one BA graph and measure EQLG runtime and traced memory.
 
-    Network generation is excluded from wall-clock timing but is included in
-    the traced-memory baseline. The memory values are divided by 1024**2,
-    matching the numerical convention used for Table 8 in the manuscript.
+    Network generation is excluded from wall-clock timing but included in the
+    traced-memory baseline. Memory tracing is started before graph creation.
+    Before each EQLG execution, only the peak counter is reset; the graph
+    remains allocated and therefore contributes to the reported peak total
+    memory.
     """
     if n <= m:
-        raise ValueError("n must be greater than the BA attachment parameter m.")
+        raise ValueError(
+            "n must be greater than the BA attachment parameter m."
+        )
 
     if repeats < 1:
         raise ValueError("repeats must be at least 1.")
@@ -128,7 +116,6 @@ def measure_one_network(
     graph_seed = base_seed + n
 
     gc.collect()
-
     tracemalloc.start()
 
     G = nx.barabasi_albert_graph(
@@ -137,33 +124,46 @@ def measure_one_network(
         seed=graph_seed,
     )
 
-    number_of_nodes = G.number_of_nodes()
-    number_of_edges = G.number_of_edges()
+    N = G.number_of_nodes()
+    M = G.number_of_edges()
+    density = nx.density(G)
+    average_degree = 2.0 * M / N
+
+    gc.collect()
+
+    graph_memory_bytes, _ = tracemalloc.get_traced_memory()
+    graph_memory_mb = graph_memory_bytes / (1024 ** 2)
 
     runtime_values = []
     peak_total_memory_values = []
+    peak_extra_memory_values = []
 
     for _ in range(repeats):
         gc.collect()
 
+        memory_before_bytes, _ = tracemalloc.get_traced_memory()
         tracemalloc.reset_peak()
 
-        start = time.perf_counter()
+        start_time = time.perf_counter()
 
         scores = eqlg_centrality(
             G,
             radius=radius,
         )
 
-        runtime_values.append(
-            time.perf_counter() - start
-        )
+        elapsed = time.perf_counter() - start_time
 
         _, peak_bytes = tracemalloc.get_traced_memory()
 
-        peak_total_memory_values.append(
-            peak_bytes / (1024 ** 2)
+        peak_total_mb = peak_bytes / (1024 ** 2)
+        peak_extra_mb = max(
+            0.0,
+            (peak_bytes - memory_before_bytes) / (1024 ** 2),
         )
+
+        runtime_values.append(elapsed)
+        peak_total_memory_values.append(peak_total_mb)
+        peak_extra_memory_values.append(peak_extra_mb)
 
         del scores
         gc.collect()
@@ -178,25 +178,30 @@ def measure_one_network(
     )
 
     result = {
-        "N": number_of_nodes,
-        "M": number_of_edges,
-        "Average_degree": (
-            2.0 * number_of_edges / number_of_nodes
-        ),
-        "Density": nx.density(G),
-        "Runtime_mean_s": float(
-            np.mean(runtime_values)
-        ),
+        "N": N,
+        "M": M,
+        "Average_degree": average_degree,
+        "Density": density,
+        "Runtime_mean_s": float(np.mean(runtime_values)),
         "Runtime_std_s": float(
             np.std(runtime_values, ddof=1)
             if repeats > 1
             else 0.0
         ),
+        "Graph_traced_memory_MB": float(graph_memory_mb),
         "Peak_total_memory_mean_MB": float(
             np.mean(peak_total_memory_values)
         ),
         "Peak_total_memory_std_MB": float(
             np.std(peak_total_memory_values, ddof=1)
+            if repeats > 1
+            else 0.0
+        ),
+        "Peak_EQLG_overhead_mean_MB": float(
+            np.mean(peak_extra_memory_values)
+        ),
+        "Peak_EQLG_overhead_std_MB": float(
+            np.std(peak_extra_memory_values, ddof=1)
             if repeats > 1
             else 0.0
         ),
@@ -262,7 +267,7 @@ def run_scalability_analysis(
             seed=base_seed,
         )
 
-    rows = []
+    rows: List[Dict[str, Any]] = []
 
     for n in sizes:
         rows.append(

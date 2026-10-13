@@ -69,5 +69,20 @@ import networkx as nx
 
 G = nx.Graph()
 
-# Add the edges parsed from the original dataset.
+# Replace edge_list with the edges parsed from the original dataset.
 # Edge weights or directions are not used in the experiments.
+G.add_edges_from(edge_list)
+
+# Remove self-loops.
+G.remove_edges_from(nx.selfloop_edges(G))
+
+# Retain only the largest connected component.
+if G.number_of_nodes() > 0:
+    largest_component = max(nx.connected_components(G), key=len)
+    G = G.subgraph(largest_component).copy()
+```
+
+The same preprocessing rules were applied to all eight datasets:
+self-loops were removed, and only the largest connected component
+was retained for the subsequent experiments. The node and edge
+counts reported above are the counts after preprocessing.

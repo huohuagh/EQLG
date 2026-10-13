@@ -1,8 +1,5 @@
 # Experimental parameters used in the EQLG revision
 
-reproducibility:
-  random_seed: 42
-
 eqlg:
   default_radius: 3
 
@@ -19,10 +16,10 @@ section_4_4_1_radius_sensitivity:
   radius_values: [1, 2, 3, 4]
 
 section_4_4_2_runtime:
+  representative_networks: [Dolphins, Email, Power, Router]
   radius_values: [1, 2, 3, 4]
-  repeats: 3
+  repeats: 5
   warmup_runs: 1
-  coverage_sample_size: null  # null means all source nodes
 
 section_4_4_3_scalability:
   graph_model: barabasi_albert
@@ -30,7 +27,9 @@ section_4_4_3_scalability:
   attachment_parameter: 3
   radius: 3
   repeats: 3
-  warmup_runs: 1
-  coverage_sample_size: 1000
-  memory_unit: MiB
-
+  base_seed: 2026
+  graph_seed_rule: base_seed_plus_N
+  warmup_network_size: 500
+  coverage_sample_size: 200
+  memory_measurement: tracemalloc_started_before_graph_construction
+  memory_unit: MB

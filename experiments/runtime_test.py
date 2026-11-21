@@ -1,12 +1,16 @@
-"""Section 4.4.2: wall-clock runtime and radius-dependent cost.
+"""Wall-clock runtime and radius-dependent cost.
 
-The functions in this module implement the timing logic used in the revision.
-They do not prescribe dataset paths or baseline implementations. Users provide
-NetworkX graphs and the exact callable used for each centrality method.
+The functions in this module implement the common timing logic used in the
+manuscript. They do not prescribe dataset paths or baseline implementations.
+Users provide NetworkX graphs and the exact callable used for each centrality
+method.
 
-Only the centrality computation itself is timed. Data loading, SIR simulation,
-result output, and graph-statistic calculation are kept outside the timed
-region.
+The unified deterministic comparison covers the eight main networks and ten
+methods: DC, KC, BC, PR, ILC, GLC, MSIS, KSGC, WDKS, and EQLG. Learning-based
+pipelines are profiled separately and are not passed through this table.
+
+Only centrality-score computation is timed. Data loading, SIR simulation,
+result output, and graph-statistic calculation remain outside the timed region.
 """
 
 import gc
@@ -72,8 +76,8 @@ def compare_methods_runtime(
 ) -> List[Dict[str, Any]]:
     """Measure wall-clock runtime for caller-supplied centrality methods.
 
-    The manuscript compares ten methods (DC, KC, BC, PR, ILC, GLC, MSIS,
-    KSGC, WDKS, and EQLG) on Dolphins, Email, Power, and Router.
+    The manuscript compares ten deterministic methods (DC, KC, BC, PR, ILC,
+    GLC, MSIS, KSGC, WDKS, and EQLG) on all eight main networks.
 
     Recent baseline implementations are deliberately not redistributed here.
     Pass the exact implementation used for each method through

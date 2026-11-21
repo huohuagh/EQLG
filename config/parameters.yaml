@@ -1,7 +1,12 @@
-# Experimental parameters used in the EQLG revision
+# Experimental parameters used in the EQLG manuscript
 
 eqlg:
   default_radius: 3
+
+main_effectiveness:
+  networks: [Dolphins, Email, NS, Power, Router, Euroroad, Wikivote, Yeast]
+  baselines: [DC, KC, BC, PR, KSGC, MSIS, WDKS, ILC, GLC, 1D-CGS, SGNN]
+  total_methods_including_eqlg: 12
 
 sir:
   recovery_probability: 1.0
@@ -12,24 +17,43 @@ evaluation:
   top_fraction: 0.20
   metrics: [kendall, jaccard, monotonicity]
 
-section_4_4_1_radius_sensitivity:
+radius_sensitivity:
   radius_values: [1, 2, 3, 4]
 
-section_4_4_2_runtime:
-  representative_networks: [Dolphins, Email, Power, Router]
-  radius_values: [1, 2, 3, 4]
+topology_runtime:
+  networks: [Dolphins, Email, NS, Power, Router, Euroroad, Wikivote, Yeast]
+  methods: [DC, KC, BC, PR, ILC, GLC, MSIS, KSGC, WDKS, EQLG]
   repeats: 5
   warmup_runs: 1
 
-section_4_4_3_scalability:
+ba_scalability:
   graph_model: barabasi_albert
   node_counts: [1000, 5000, 10000, 20000, 50000]
   attachment_parameter: 3
   radius: 3
-  repeats: 3
+  compared_methods: [DC, KC, PR, ILC, MSIS, WDKS, EQLG]
+  eqlg_repeats: 3
   base_seed: 2026
   graph_seed_rule: base_seed_plus_N
   warmup_network_size: 500
   coverage_sample_size: 200
   memory_measurement: tracemalloc_started_before_graph_construction
   memory_unit: MB
+  reported_n_50000_eqlg_runtime_s: 74.94
+  reported_n_50000_eqlg_peak_traced_memory_mb: 115.23
+
+large_real_scalability:
+  networks:
+    PG: {nodes: 10680, edges: 24316, eqlg_mean_runtime_s: 2.03}
+    CM: {nodes: 27519, edges: 116181, eqlg_mean_runtime_s: 19.94}
+    TO: {nodes: 34761, edges: 107720, eqlg_mean_runtime_s: 354.15}
+  methods: [DC, KC, PR, ILC, MSIS, WDKS, EQLG]
+
+learning_computational_profile:
+  networks: [Dolphins, Email, NS, Power, Router, Euroroad, Wikivote, Yeast]
+  one_d_cgs_measurements: [inference]
+  sgnn_measurements: [network_specific_training, neural_inference, structural_entropy_reranking, total]
+  inference_warmup_runs: 1
+  inference_repeats: 5
+  sgnn_training_runs: 3
+  results_file: supplementary/Supplementary_Table_S1_Learning_Runtime_8Networks.xlsx

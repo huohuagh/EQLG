@@ -10,6 +10,7 @@ configuration are left to the user.
 """
 
 import random
+from math import isfinite
 
 from src.eqlg import eqlg_centrality
 from src.sir import epidemic_threshold, sir_all_nodes
@@ -84,9 +85,9 @@ def run_main_experiment(
     in the manuscript:
 
     1. Compute the EQLG score for every node.
-    2. Compute the epidemic threshold beta_c.
+    2. Compute the degree-based reference scale beta_c.
     3. Evaluate spreading influence using SIR under five
-       infection probabilities around beta_c.
+       transmission rates scaled by beta_c.
     4. Compare each centrality ranking with the SIR ranking
        using Kendall correlation and Jaccard similarity.
     5. Evaluate the discrimination capability of each
@@ -116,10 +117,10 @@ def run_main_experiment(
         Truncation radius used by EQLG.
 
     recovery_probability : float, default=1.0
-        SIR recovery probability gamma.
+        Legacy argument name for the continuous-time recovery rate gamma.
 
     beta_multipliers : iterable of float
-        Multipliers applied to the epidemic threshold beta_c.
+        Multipliers applied to the degree-based reference scale beta_c.
 
     simulations_per_source : int, default=1000
         Number of independent SIR simulations performed for
@@ -148,9 +149,9 @@ def run_main_experiment(
             "simulations_per_source must be at least 1."
         )
 
-    if not 0.0 <= recovery_probability <= 1.0:
+    if not isfinite(recovery_probability) or recovery_probability <= 0.0:
         raise ValueError(
-            "recovery_probability must lie in [0, 1]."
+            "recovery_probability must be a finite, positive recovery rate."
         )
 
     if not 0.0 < top_fraction <= 1.0:
@@ -185,7 +186,7 @@ def run_main_experiment(
             methods[method_name] = scores
 
     # --------------------------------------------------------
-    # 2. Epidemic threshold
+    # 2. Degree-based reference scale
     # --------------------------------------------------------
     beta_c = epidemic_threshold(G)
 
@@ -259,3 +260,4 @@ def run_main_experiment(
     }
 
     return results
+

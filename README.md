@@ -81,12 +81,16 @@ This gives **12 evaluated methods in total**, including EQLG.
 
 The main setting uses:
 
-- recovery probability `gamma = 1.0`;
-- five infection probabilities: `0.8, 0.9, 1.0, 1.1, 1.2` times `beta_c`;
+- recovery rate `gamma = 1.0`;
+- five transmission-rate settings: `0.8, 0.9, 1.0, 1.1, 1.2` times `beta_c`;
 - 1000 independent SIR simulations for each source node;
 - Kendall correlation;
 - top-20% Jaccard similarity;
 - monotonicity for score discrimination.
+
+The public SIR utility is a standalone continuous-time implementation using exponential transmission and recovery waiting times. Its existing interface names and previously published defaults are retained; `beta_c` supplies a degree-based reference scale.
+
+Evaluation uses stable descending rankings (input order resolves ties), `ceil(n * fraction)` nodes for top-fraction Jaccard, and scores rounded to 12 decimal places when counting monotonicity ties.
 
 Baseline score dictionaries are supplied externally to the evaluation function. At `beta = beta_c`, EQLG ranks first on seven of the eight networks. Email is the exception, where 1D-CGS achieves a slightly higher Kendall correlation.
 
@@ -211,3 +215,4 @@ Siqi Zhu, Jie Zhan, Yan Hui, and Shibo Wei. *Identifying influential nodes in co
 ## License
 
 MIT License.
+

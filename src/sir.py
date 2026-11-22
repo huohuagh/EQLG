@@ -1,12 +1,14 @@
 """
-SIR spreading simulation used for evaluating node influence.
+Continuous-time Markov SIR simulation utilities for node influence.
 
-The implementation follows the experimental setting described in the
-EQLG manuscript. Each node is used in turn as the initially infected
-source, and its spreading influence is estimated from the mean final
-outbreak size over repeated SIR simulations.
+Transmission and recovery use independent exponential waiting times.
+This standalone event-driven implementation retains the public function
+interfaces and estimates influence from mean final recovered counts.
 """
 
+from heapq import heappop, heappush
+from itertools import count
+from math import isfinite
 import random
 
 import networkx as nx
@@ -14,7 +16,7 @@ import networkx as nx
 
 def epidemic_threshold(G):
     """
-    Compute the epidemic threshold beta_c.
+    Compute the degree-based reference scale beta_c.
 
     beta_c = <k> / (<k^2> - <k>)
 
@@ -26,7 +28,7 @@ def epidemic_threshold(G):
     Returns
     -------
     float
-        Epidemic threshold beta_c.
+        Degree-based reference scale beta_c.
     """
     n = G.number_of_nodes()
 
@@ -50,75 +52,57 @@ def epidemic_threshold(G):
 
 
 def sir_once(G, source, beta, gamma=1.0, rng=None):
-    """
-    Perform one discrete-time SIR simulation.
+    """Perform one continuous-time SIR simulation until extinction.
 
-    Parameters
-    ----------
-    G : networkx.Graph
-        Input network.
-
-    source : hashable
-        Initially infected node.
-
-    beta : float
-        Infection probability.
-
-    gamma : float, default=1.0
-        Recovery probability.
-
-    rng : random.Random, optional
-        Random-number generator.
-
-    Returns
-    -------
-    int
-        Final outbreak size, i.e., the total number of nodes
-        that have been infected during the spreading process.
+    beta is a finite, nonnegative transmission rate per susceptible-infected
+    edge; gamma is a finite, positive recovery rate per infected node.
+    Rates are not probabilities and may exceed one. rng may be a seeded
+    random.Random instance. Return the final number of recovered nodes.
     """
     if source not in G:
         raise ValueError("The source node is not contained in the graph.")
-
-    if not 0.0 <= beta <= 1.0:
-        raise ValueError("beta must lie in [0, 1].")
-
-    if not 0.0 <= gamma <= 1.0:
-        raise ValueError("gamma must lie in [0, 1].")
-
+    if not isfinite(beta) or beta < 0.0:
+        raise ValueError("beta must be a finite, nonnegative rate.")
+    if not isfinite(gamma) or gamma <= 0.0:
+        raise ValueError("gamma must be a finite, positive rate.")
     if rng is None:
         rng = random.Random()
 
     susceptible = set(G.nodes())
-    infected = {source}
-    recovered = set()
-
     susceptible.remove(source)
+    events = []
+    serial = count()
 
-    while infected:
+    def schedule(node, infected_at):
+        lifetime = rng.expovariate(gamma)
+        recovered_at = infected_at + lifetime
+        # A unique serial number avoids comparing arbitrary node labels.
+        heappush(events, (recovered_at, next(serial), False, node))
+        if beta == 0.0:
+            return
+        for neighbor in G.neighbors(node):
+            if neighbor in susceptible:
+                delay = rng.expovariate(beta)
+                if delay < lifetime:
+                    heappush(
+                        events,
+                        (infected_at + delay, next(serial), True, neighbor)
+                    )
 
-        newly_infected = set()
-        newly_recovered = set()
+    schedule(source, 0.0)
+    recovered = 0
+    while events:
+        event_time, _, infection, node = heappop(events)
+        if infection:
+            # Another source may already have infected this target.
+            if node not in susceptible:
+                continue
+            susceptible.remove(node)
+            schedule(node, event_time)
+        else:
+            recovered += 1
 
-        # Infection attempts are made by nodes infected
-        # at the beginning of the current time step.
-        for v in infected:
-
-            for u in G.neighbors(v):
-
-                if u in susceptible and rng.random() < beta:
-                    newly_infected.add(u)
-
-            if rng.random() < gamma:
-                newly_recovered.add(v)
-
-        susceptible.difference_update(newly_infected)
-
-        infected.update(newly_infected)
-        infected.difference_update(newly_recovered)
-
-        recovered.update(newly_recovered)
-
-    return len(recovered)
+    return recovered
 
 
 def sir_influence(
@@ -143,10 +127,10 @@ def sir_influence(
         Initially infected source node.
 
     beta : float
-        Infection probability.
+        Transmission rate per susceptible-infected edge.
 
     gamma : float, default=1.0
-        Recovery probability.
+        Recovery rate per infected node.
 
     simulations : int, default=1000
         Number of independent simulations.
@@ -194,10 +178,10 @@ def sir_all_nodes(
     G : networkx.Graph
 
     beta : float
-        Infection probability.
+        Transmission rate per susceptible-infected edge.
 
     gamma : float, default=1.0
-        Recovery probability.
+        Recovery rate per infected node.
 
     simulations : int, default=1000
         Independent simulations for each source node.
@@ -232,7 +216,7 @@ def sir_all_nodes(
 
 def beta_settings(G):
     """
-    Return the five infection probabilities used in the manuscript.
+    Return the existing five beta_c-scaled transmission-rate settings.
 
     0.8 * beta_c
     0.9 * beta_c
@@ -277,3 +261,4 @@ if __name__ == "__main__":
         print(
             f"{multiplier:.1f} * beta_c = {beta:.6f}"
         )
+

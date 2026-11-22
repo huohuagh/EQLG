@@ -12,6 +12,7 @@ reported in the EQLG manuscript.
 """
 
 from collections import Counter
+from math import ceil
 
 
 def _check_same_nodes(scores_a, scores_b):
@@ -30,78 +31,41 @@ def _check_same_nodes(scores_a, scores_b):
 
 
 def kendall_correlation(scores_a, scores_b):
-    """
-    Compute Kendall rank correlation between two
-    node-score sequences.
+    """Compare descending rankings over the same nodes.
 
-    The implementation follows the pairwise definition:
-
-        tau = 2 * (n_c - n_d) / [n * (n - 1)]
-
-    where n_c and n_d denote the numbers of concordant
-    and discordant node pairs, respectively.
-
-    Tied pairs contribute neither to n_c nor to n_d.
-
-    Parameters
-    ----------
-    scores_a : dict
-        First node-score mapping.
-
-    scores_b : dict
-        Second node-score mapping.
-
-    Returns
-    -------
-    float
-        Kendall rank correlation.
+    Scores are sorted stably: ties retain the insertion order of their
+    respective input dictionaries. Kendall correlation is then computed
+    from the resulting complete rankings, rather than from tied raw scores.
+    Preserve the node order of the input score files when constructing
+    these dictionaries.
     """
     _check_same_nodes(scores_a, scores_b)
 
-    nodes = list(scores_a.keys())
-    n = len(nodes)
-
+    n = len(scores_a)
     if n < 2:
-        return 1.0
+        return 0.0
 
-    concordant = 0
+    ranking_a = sorted(scores_a, key=scores_a.get, reverse=True)
+    ranking_b = sorted(scores_b, key=scores_b.get, reverse=True)
+    positions_b = {node: i for i, node in enumerate(ranking_b)}
+
+    # Count discordant pairs using a Fenwick tree, in O(n log n) time.
+    tree = [0] * (n + 1)
     discordant = 0
+    for seen, node in enumerate(ranking_a):
+        index = positions_b[node] + 1
+        prefix_count = 0
+        cursor = index
+        while cursor > 0:
+            prefix_count += tree[cursor]
+            cursor -= cursor & -cursor
+        discordant += seen - prefix_count
+        while index <= n:
+            tree[index] += 1
+            index += index & -index
 
-    for i in range(n - 1):
-
-        node_i = nodes[i]
-
-        for j in range(i + 1, n):
-
-            node_j = nodes[j]
-
-            diff_a = (
-                scores_a[node_i]
-                - scores_a[node_j]
-            )
-
-            diff_b = (
-                scores_b[node_i]
-                - scores_b[node_j]
-            )
-
-            product = diff_a * diff_b
-
-            if product > 0:
-                concordant += 1
-
-            elif product < 0:
-                discordant += 1
-
-            # Tied pairs contribute 0.
-
-    tau = (
-        2.0
-        * (concordant - discordant)
-        / (n * (n - 1))
-    )
-
-    return tau
+    pairs = n * (n - 1) // 2
+    return (pairs - 2 * discordant) / pairs
 
 
 def top_nodes(scores, fraction=0.20, k=None):
@@ -115,6 +79,7 @@ def top_nodes(scores, fraction=0.20, k=None):
 
     fraction : float, default=0.20
         Fraction of top nodes to select when k is not given.
+        The selected count is ceil(n * fraction), with at least one node.
 
     k : int, optional
         Explicit number of nodes to select.
@@ -136,7 +101,7 @@ def top_nodes(scores, fraction=0.20, k=None):
                 "fraction must lie in the interval (0, 1]."
             )
 
-        k = max(1, int(n * fraction))
+        k = max(1, ceil(n * fraction))
 
     if k < 1 or k > n:
         raise ValueError(
@@ -205,14 +170,14 @@ def jaccard_similarity(
     union = set_a | set_b
 
     if not union:
-        return 1.0
+        return 0.0
 
     intersection = set_a & set_b
 
     return len(intersection) / len(union)
 
 
-def monotonicity(scores):
+def monotonicity(scores, round_ndigits=12):
     """
     Compute ranking monotonicity.
 
@@ -230,6 +195,10 @@ def monotonicity(scores):
     scores : dict
         Node-score mapping.
 
+    round_ndigits : int or None, default=12
+        Decimal places used when grouping equal scores. Use None to
+        compare the original floating-point values without rounding.
+
     Returns
     -------
     float
@@ -238,9 +207,12 @@ def monotonicity(scores):
     n = len(scores)
 
     if n < 2:
-        return 1.0
+        return 0.0
 
-    counts = Counter(scores.values())
+    values = (float(value) for value in scores.values())
+    if round_ndigits is not None:
+        values = (round(value, round_ndigits) for value in values)
+    counts = Counter(values)
 
     tied_pairs_term = sum(
         count * (count - 1)
@@ -293,3 +265,4 @@ if __name__ == "__main__":
         "Monotonicity:",
         monotonicity(method_scores)
     )
+

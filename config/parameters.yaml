@@ -9,6 +9,7 @@ main_effectiveness:
   total_methods_including_eqlg: 12
 
 sir:
+  # Legacy key name: interpreted as a continuous-time recovery rate.
   recovery_probability: 1.0
   beta_multipliers: [0.8, 0.9, 1.0, 1.1, 1.2]
   simulations_per_source: 1000
@@ -57,3 +58,4 @@ learning_computational_profile:
   inference_repeats: 5
   sgnn_training_runs: 3
   results_file: supplementary/Supplementary_Table_S1_Learning_Runtime_8Networks.xlsx
+

@@ -88,7 +88,7 @@ The main setting uses:
 - top-20% Jaccard similarity;
 - monotonicity for score discrimination.
 
-The public SIR utility is a standalone continuous-time implementation using exponential transmission and recovery waiting times. Its existing interface names and previously published defaults are retained; `beta_c` supplies a degree-based reference scale.
+The public SIR utility is a standalone continuous-time implementation using exponential transmission and recovery waiting times. Its existing interface names and previously published defaults are retained; `beta_c` denotes the epidemic threshold.
 
 Evaluation uses stable descending rankings (input order resolves ties), `ceil(n * fraction)` nodes for top-fraction Jaccard, and scores rounded to 12 decimal places when counting monotonicity ties.
 

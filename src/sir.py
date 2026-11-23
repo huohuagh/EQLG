@@ -16,7 +16,7 @@ import networkx as nx
 
 def epidemic_threshold(G):
     """
-    Compute the degree-based reference scale beta_c.
+    Compute the epidemic threshold beta_c.
 
     beta_c = <k> / (<k^2> - <k>)
 
@@ -28,7 +28,7 @@ def epidemic_threshold(G):
     Returns
     -------
     float
-        Degree-based reference scale beta_c.
+        Epidemic threshold beta_c.
     """
     n = G.number_of_nodes()
 

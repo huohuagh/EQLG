@@ -85,7 +85,7 @@ def run_main_experiment(
     in the manuscript:
 
     1. Compute the EQLG score for every node.
-    2. Compute the degree-based reference scale beta_c.
+    2. Compute the epidemic threshold beta_c.
     3. Evaluate spreading influence using SIR under five
        transmission rates scaled by beta_c.
     4. Compare each centrality ranking with the SIR ranking
@@ -120,7 +120,7 @@ def run_main_experiment(
         Legacy argument name for the continuous-time recovery rate gamma.
 
     beta_multipliers : iterable of float
-        Multipliers applied to the degree-based reference scale beta_c.
+        Multipliers applied to the epidemic threshold beta_c.
 
     simulations_per_source : int, default=1000
         Number of independent SIR simulations performed for
@@ -186,7 +186,7 @@ def run_main_experiment(
             methods[method_name] = scores
 
     # --------------------------------------------------------
-    # 2. Degree-based reference scale
+    # 2. Epidemic threshold
     # --------------------------------------------------------
     beta_c = epidemic_threshold(G)
 
